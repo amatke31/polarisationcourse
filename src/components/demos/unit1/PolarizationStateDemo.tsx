@@ -262,6 +262,24 @@ function PolarizationStateCanvas({
       ctx.lineTo(cx + vecX, cy - vecY)
       ctx.stroke()
 
+      ctx.setLineDash([5, 5])
+
+      ctx.beginPath()
+      ctx.strokeStyle = '#aaa'
+      ctx.lineWidth = 2
+      ctx.moveTo(cx + vecX, cy)
+      ctx.lineTo(cx + vecX, cy - vecY)
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.strokeStyle = '#aaa'
+      ctx.lineWidth = 2
+      ctx.moveTo(cx + vecX, cy - vecY)
+      ctx.lineTo(cx, cy - vecY)
+      ctx.stroke()
+
+      ctx.setLineDash([])
+
       // 矢量端点
       ctx.beginPath()
       ctx.fillStyle = '#ffff00'
@@ -272,24 +290,24 @@ function PolarizationStateCanvas({
       ctx.beginPath()
       ctx.strokeStyle = '#ff4444'
       ctx.lineWidth = 2
-      ctx.moveTo(cx, cy + 120)
-      ctx.lineTo(cx + vecX, cy + 120)
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(cx + vecX, cy)
       ctx.stroke()
       ctx.beginPath()
       ctx.fillStyle = '#ff4444'
-      ctx.arc(cx + vecX, cy + 120, 4, 0, Math.PI * 2)
+      ctx.arc(cx + vecX, cy, 6, 0, Math.PI * 2)
       ctx.fill()
 
       // Ey分量指示
       ctx.beginPath()
       ctx.strokeStyle = '#44ff44'
       ctx.lineWidth = 2
-      ctx.moveTo(cx - 120, cy)
-      ctx.lineTo(cx - 120, cy - vecY)
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(cx, cy - vecY)
       ctx.stroke()
       ctx.beginPath()
       ctx.fillStyle = '#44ff44'
-      ctx.arc(cx - 120, cy - vecY, 4, 0, Math.PI * 2)
+      ctx.arc(cx, cy - vecY, 6, 0, Math.PI * 2)
       ctx.fill()
 
       // 图例
