@@ -95,3 +95,18 @@ export type {
   Handedness,
   ProjectionType,
 } from './RayRenderAdapter'
+
+// === Unified Optical Bench Layout (Demo Container) ===
+
+export {
+  OpticalBenchLayout,
+  useBenchContext,
+  QuickStat,
+  VisualizationOverlay,
+  AngleIndicator,
+} from './OpticalBenchLayout'
+export type {
+  OpticalBenchLayoutProps,
+  PhysicsTooltipData,
+  Preset,
+} from './OpticalBenchLayout'

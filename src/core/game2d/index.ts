@@ -12,3 +12,6 @@ export * from './physics'
 export * from './advancedLevels'
 export * from './mechanics'
 export * from './masterClassLevels'
+
+// Physics adapter bridging game to unified physics engine
+export * from './physics/GameAdapter'

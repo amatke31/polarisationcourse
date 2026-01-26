@@ -1,16 +1,20 @@
 /**
- * ThreePolarizersDemo - 三偏振片悖论演示
+ * ThreePolarizersDemo - 三偏振片悖论演示 (Enhanced Version)
  * 展示经典的"三偏振片悖论"：在两个正交偏振片之间插入45°偏振片可以让光通过
- * 参考图片：偏振片（起偏器/检偏器）和马吕斯定律的应用
  *
  * Physics Engine Migration:
  * - Uses unified CoherencyMatrix-based calculations via PolarizationPhysics
  * - Polarizer chain computed through engine (handles unpolarized input + cascaded polarizers)
+ *
+ * Enhanced Features:
+ * - Real-time I-θ curve showing transmission vs middle polarizer angle
+ * - Draggable polarizer angles directly on visualization
+ * - Interactive angle handles for intuitive manipulation
  */
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
-import { Volume2, VolumeX } from 'lucide-react'
+import { Volume2, VolumeX, TrendingUp } from 'lucide-react'
 import { useHapticAudio } from '@/hooks/useHapticAudio'
 import { PolarizationPhysics } from '@/hooks/usePolarizationSimulation'
 import {
@@ -22,80 +26,6 @@ import {
   PresetButtons,
   AnimatedValue,
 } from '../DemoControls'
-
-// 偏振片组件SVG
-interface PolarizerVisualizerProps {
-  x: number
-  angle: number
-  label: string
-  color: string
-  isActive: boolean
-  showLines?: boolean
-}
-
-function PolarizerVisualizer({
-  x,
-  angle,
-  label,
-  color,
-  isActive,
-  showLines = true,
-}: PolarizerVisualizerProps) {
-  const lineCount = 7
-  const radius = 35
-
-  return (
-    <g transform={`translate(${x}, 150)`}>
-      {/* 偏振片框架 */}
-      <motion.ellipse
-        cx="0"
-        cy="0"
-        rx={radius}
-        ry={radius * 1.2}
-        fill={isActive ? `${color}15` : '#1e293b'}
-        stroke={isActive ? color : '#475569'}
-        strokeWidth={isActive ? 2 : 1}
-        animate={{ scale: isActive ? 1.05 : 1 }}
-        transition={{ duration: 0.3 }}
-      />
-
-      {/* 偏振方向线条 */}
-      {showLines && (
-        <g transform={`rotate(${angle})`}>
-          {Array.from({ length: lineCount }, (_, i) => {
-            const yOffset = ((i - Math.floor(lineCount / 2)) / (lineCount / 2)) * radius * 0.9
-            const xLength = Math.sqrt(radius * radius - yOffset * yOffset) * 0.85
-            return (
-              <line
-                key={i}
-                x1={-xLength}
-                y1={yOffset}
-                x2={xLength}
-                y2={yOffset}
-                stroke={isActive ? color : '#64748b'}
-                strokeWidth={1.5}
-                opacity={isActive ? 0.8 : 0.4}
-              />
-            )
-          })}
-
-          {/* 透光轴箭头 */}
-          <line x1="0" y1={-radius - 8} x2="0" y2={radius + 8} stroke={color} strokeWidth="2" opacity="0.7" />
-          <polygon points="0,-47 -4,-40 4,-40" fill={color} opacity="0.7" />
-          <polygon points="0,47 -4,40 4,40" fill={color} opacity="0.7" />
-        </g>
-      )}
-
-      {/* 角度标签 */}
-      <text x="0" y={radius + 25} textAnchor="middle" fill="#9ca3af" fontSize="11">
-        {label}
-      </text>
-      <text x="0" y={radius + 40} textAnchor="middle" fill={color} fontSize="12" fontWeight="bold">
-        {angle}°
-      </text>
-    </g>
-  )
-}
 
 // 光束组件
 interface LightBeamProps {
@@ -174,6 +104,426 @@ function getPolarizationColor(angle: number): string {
   return '#4444ff' // 135° - 蓝
 }
 
+// ========================================
+// Real-time I-θ Curve Component (马吕斯曲线)
+// ========================================
+interface MalusCurveProps {
+  polarizer1Angle: number
+  polarizer2Angle: number | null // Middle polarizer (nullable)
+  polarizer3Angle: number
+  showMiddlePolarizer: boolean
+  currentMiddleAngle: number
+  isZh: boolean
+}
+
+function MalusCurve({
+  polarizer1Angle,
+  polarizer3Angle,
+  showMiddlePolarizer,
+  currentMiddleAngle,
+  isZh,
+}: MalusCurveProps) {
+  // Generate curve data using physics engine
+  const curveData = useMemo(() => {
+    const points: { angle: number; transmission: number }[] = []
+
+    for (let middleAngle = 0; middleAngle <= 180; middleAngle += 2) {
+      const angles = showMiddlePolarizer
+        ? [polarizer1Angle, middleAngle, polarizer3Angle]
+        : [polarizer1Angle, polarizer3Angle]
+
+      const result = PolarizationPhysics.polarizerChain(angles, true, 1.0)
+      points.push({
+        angle: middleAngle,
+        transmission: result.intensity * 100,
+      })
+    }
+
+    return points
+  }, [polarizer1Angle, polarizer3Angle, showMiddlePolarizer])
+
+  // Current point on the curve
+  const currentPoint = useMemo(() => {
+    if (!showMiddlePolarizer) return null
+
+    const angles = [polarizer1Angle, currentMiddleAngle, polarizer3Angle]
+    const result = PolarizationPhysics.polarizerChain(angles, true, 1.0)
+    return {
+      angle: currentMiddleAngle,
+      transmission: result.intensity * 100,
+    }
+  }, [polarizer1Angle, currentMiddleAngle, polarizer3Angle, showMiddlePolarizer])
+
+  // Chart dimensions
+  const width = 280
+  const height = 140
+  const padding = { top: 20, right: 15, bottom: 30, left: 40 }
+  const chartWidth = width - padding.left - padding.right
+  const chartHeight = height - padding.top - padding.bottom
+
+  // Scale functions
+  const xScale = (angle: number) => padding.left + (angle / 180) * chartWidth
+  const yScale = (transmission: number) =>
+    padding.top + chartHeight - (transmission / 25) * chartHeight // Max 25% for 3 polarizers
+
+  // Build SVG path
+  const pathD = curveData
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.angle)},${yScale(p.transmission)}`)
+    .join(' ')
+
+  // Find max transmission point
+  const maxPoint = curveData.reduce((max, p) => (p.transmission > max.transmission ? p : max), curveData[0])
+
+  return (
+    <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <TrendingUp className="w-4 h-4 text-cyan-400" />
+        <span className="text-xs font-medium text-gray-300">
+          {isZh ? '透射率 vs 中间偏振片角度' : 'Transmission vs Middle Polarizer Angle'}
+        </span>
+      </div>
+
+      <svg width={width} height={height} className="w-full">
+        {/* Background grid */}
+        <defs>
+          <pattern id="curve-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path
+              d="M 20 0 L 0 0 0 20"
+              fill="none"
+              stroke="rgba(100,150,255,0.1)"
+              strokeWidth="0.5"
+            />
+          </pattern>
+        </defs>
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={chartHeight}
+          fill="url(#curve-grid)"
+        />
+
+        {/* X-axis */}
+        <line
+          x1={padding.left}
+          y1={padding.top + chartHeight}
+          x2={padding.left + chartWidth}
+          y2={padding.top + chartHeight}
+          stroke="#475569"
+          strokeWidth="1"
+        />
+
+        {/* Y-axis */}
+        <line
+          x1={padding.left}
+          y1={padding.top}
+          x2={padding.left}
+          y2={padding.top + chartHeight}
+          stroke="#475569"
+          strokeWidth="1"
+        />
+
+        {/* X-axis labels */}
+        {[0, 45, 90, 135, 180].map((angle) => (
+          <g key={angle}>
+            <line
+              x1={xScale(angle)}
+              y1={padding.top + chartHeight}
+              x2={xScale(angle)}
+              y2={padding.top + chartHeight + 4}
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <text
+              x={xScale(angle)}
+              y={padding.top + chartHeight + 16}
+              textAnchor="middle"
+              fill="#94a3b8"
+              fontSize="9"
+            >
+              {angle}°
+            </text>
+          </g>
+        ))}
+
+        {/* Y-axis labels */}
+        {[0, 12.5, 25].map((val) => (
+          <g key={val}>
+            <line
+              x1={padding.left - 4}
+              y1={yScale(val)}
+              x2={padding.left}
+              y2={yScale(val)}
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <text
+              x={padding.left - 8}
+              y={yScale(val) + 3}
+              textAnchor="end"
+              fill="#94a3b8"
+              fontSize="9"
+            >
+              {val.toFixed(1)}%
+            </text>
+          </g>
+        ))}
+
+        {/* Main curve */}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="#22d3ee"
+          strokeWidth="2"
+          opacity={showMiddlePolarizer ? 1 : 0.3}
+        />
+
+        {/* Maximum point marker */}
+        {showMiddlePolarizer && (
+          <g>
+            <line
+              x1={xScale(maxPoint.angle)}
+              y1={yScale(maxPoint.transmission)}
+              x2={xScale(maxPoint.angle)}
+              y2={padding.top + chartHeight}
+              stroke="#fbbf24"
+              strokeWidth="1"
+              strokeDasharray="3 2"
+              opacity="0.5"
+            />
+            <circle
+              cx={xScale(maxPoint.angle)}
+              cy={yScale(maxPoint.transmission)}
+              r="4"
+              fill="#fbbf24"
+              opacity="0.6"
+            />
+          </g>
+        )}
+
+        {/* Current point */}
+        {showMiddlePolarizer && currentPoint && (
+          <motion.g
+            animate={{
+              cx: xScale(currentPoint.angle),
+              cy: yScale(currentPoint.transmission),
+            }}
+            transition={{ duration: 0.1 }}
+          >
+            <circle
+              cx={xScale(currentPoint.angle)}
+              cy={yScale(currentPoint.transmission)}
+              r="6"
+              fill="#22d3ee"
+              stroke="white"
+              strokeWidth="2"
+            />
+          </motion.g>
+        )}
+
+        {/* Axis labels */}
+        <text
+          x={padding.left + chartWidth / 2}
+          y={height - 4}
+          textAnchor="middle"
+          fill="#94a3b8"
+          fontSize="10"
+        >
+          θ₂ ({isZh ? '中间偏振片角度' : 'Middle Polarizer'})
+        </text>
+        <text
+          x={10}
+          y={padding.top + chartHeight / 2}
+          textAnchor="middle"
+          fill="#94a3b8"
+          fontSize="10"
+          transform={`rotate(-90, 10, ${padding.top + chartHeight / 2})`}
+        >
+          I/I₀ (%)
+        </text>
+      </svg>
+
+      {/* Legend */}
+      <div className="flex justify-between mt-2 text-[10px] text-gray-400">
+        <span>
+          {isZh ? '最大透射' : 'Max'}: {maxPoint.transmission.toFixed(1)}% @ {maxPoint.angle}°
+        </span>
+        {showMiddlePolarizer && currentPoint && (
+          <span className="text-cyan-400">
+            {isZh ? '当前' : 'Current'}: {currentPoint.transmission.toFixed(1)}%
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ========================================
+// Draggable Polarizer Handle
+// ========================================
+interface DraggablePolarizerProps {
+  x: number
+  angle: number
+  label: string
+  color: string
+  isActive: boolean
+  showLines?: boolean
+  onAngleChange?: (angle: number) => void
+  draggable?: boolean
+}
+
+function DraggablePolarizerVisualizer({
+  x,
+  angle,
+  label,
+  color,
+  isActive,
+  showLines = true,
+  onAngleChange,
+  draggable = false,
+}: DraggablePolarizerProps) {
+  const lineCount = 7
+  const radius = 35
+  const [isDragging, setIsDragging] = useState(false)
+  const svgRef = useRef<SVGGElement>(null)
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!draggable || !onAngleChange) return
+    e.preventDefault()
+    setIsDragging(true)
+  }, [draggable, onAngleChange])
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !svgRef.current || !onAngleChange) return
+
+    const svg = svgRef.current.ownerSVGElement
+    if (!svg) return
+
+    const point = svg.createSVGPoint()
+    point.x = e.clientX
+    point.y = e.clientY
+
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return
+
+    const svgPoint = point.matrixTransform(ctm.inverse())
+    const dx = svgPoint.x - x
+    const dy = svgPoint.y - 150 // centerY
+
+    let newAngle = Math.atan2(dx, -dy) * (180 / Math.PI)
+    newAngle = ((newAngle % 180) + 180) % 180
+
+    // Snap to 5-degree increments
+    const snappedAngle = Math.round(newAngle / 5) * 5
+    onAngleChange(snappedAngle)
+  }, [isDragging, onAngleChange, x])
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+    return undefined
+  }, [isDragging, handleMouseMove, handleMouseUp])
+
+  return (
+    <g ref={svgRef} transform={`translate(${x}, 150)`}>
+      {/* 偏振片框架 */}
+      <motion.ellipse
+        cx="0"
+        cy="0"
+        rx={radius}
+        ry={radius * 1.2}
+        fill={isActive ? `${color}15` : '#1e293b'}
+        stroke={isActive ? color : '#475569'}
+        strokeWidth={isActive ? 2 : 1}
+        animate={{ scale: isActive ? 1.05 : 1 }}
+        transition={{ duration: 0.3 }}
+      />
+
+      {/* 偏振方向线条 */}
+      {showLines && (
+        <g transform={`rotate(${angle})`}>
+          {Array.from({ length: lineCount }, (_, i) => {
+            const yOffset = ((i - Math.floor(lineCount / 2)) / (lineCount / 2)) * radius * 0.9
+            const xLength = Math.sqrt(radius * radius - yOffset * yOffset) * 0.85
+            return (
+              <line
+                key={i}
+                x1={-xLength}
+                y1={yOffset}
+                x2={xLength}
+                y2={yOffset}
+                stroke={isActive ? color : '#64748b'}
+                strokeWidth={1.5}
+                opacity={isActive ? 0.8 : 0.4}
+              />
+            )
+          })}
+
+          {/* 透光轴箭头 */}
+          <line x1="0" y1={-radius - 8} x2="0" y2={radius + 8} stroke={color} strokeWidth="2" opacity="0.7" />
+          <polygon points="0,-47 -4,-40 4,-40" fill={color} opacity="0.7" />
+          <polygon points="0,47 -4,40 4,40" fill={color} opacity="0.7" />
+        </g>
+      )}
+
+      {/* Draggable handle (外圈) */}
+      {draggable && (
+        <motion.circle
+          cx="0"
+          cy="0"
+          r={radius + 8}
+          fill="transparent"
+          stroke={isDragging ? color : 'transparent'}
+          strokeWidth="2"
+          strokeDasharray="4 2"
+          style={{ cursor: 'grab' }}
+          onMouseDown={handleMouseDown}
+          animate={{ opacity: isDragging ? 1 : 0.3 }}
+        />
+      )}
+
+      {/* Drag indicator */}
+      {draggable && (
+        <g transform={`rotate(${angle})`}>
+          <motion.circle
+            cx="0"
+            cy={-radius - 12}
+            r="5"
+            fill={color}
+            stroke="white"
+            strokeWidth="1.5"
+            style={{ cursor: 'grab' }}
+            onMouseDown={handleMouseDown}
+            animate={{
+              scale: isDragging ? 1.3 : 1,
+              y: isDragging ? -2 : 0,
+            }}
+            transition={{ duration: 0.15 }}
+          />
+        </g>
+      )}
+
+      {/* 角度标签 */}
+      <text x="0" y={radius + 25} textAnchor="middle" fill="#9ca3af" fontSize="11">
+        {label}
+      </text>
+      <text x="0" y={radius + 40} textAnchor="middle" fill={color} fontSize="12" fontWeight="bold">
+        {angle}°
+      </text>
+    </g>
+  )
+}
+
 // 预设配置
 const PRESETS = [
   { name: 'Crossed (0°-90°)', nameZh: '正交（0°-90°）', p1: 0, p2: null, p3: 90 },
@@ -222,6 +572,8 @@ export function ThreePolarizersDemo() {
   const [showPolarization, setShowPolarization] = useState(true)
   const [showFormulas, setShowFormulas] = useState(true)
   const [selectedPreset, setSelectedPreset] = useState<number | null>(1)
+  const [showCurve, setShowCurve] = useState(true)
+  const [enableDrag, setEnableDrag] = useState(true)
 
   // Handle angle changes with haptic feedback
   const handleAngleChange = useCallback((setter: (v: number) => void, value: number) => {
@@ -393,16 +745,22 @@ export function ThreePolarizersDemo() {
                 showPolarization={showPolarization}
               />
 
-              {/* 偏振片1（起偏器） */}
-              <PolarizerVisualizer
+              {/* 偏振片1（起偏器） - Draggable */}
+              <DraggablePolarizerVisualizer
                 x={165}
                 angle={polarizer1Angle}
                 label={isZh ? '起偏器 P₁' : 'Polarizer P₁'}
                 color="#22d3ee"
                 isActive={true}
+                draggable={enableDrag}
+                onAngleChange={(angle) => {
+                  setPolarizer1Angle(angle)
+                  checkAngle(angle)
+                  setSelectedPreset(null)
+                }}
               />
 
-              {/* 偏振片2（中间） */}
+              {/* 偏振片2（中间）- Draggable */}
               <AnimatePresence>
                 {showMiddlePolarizer && polarizer2Angle !== null && (
                   <motion.g
@@ -411,24 +769,36 @@ export function ThreePolarizersDemo() {
                     exit={{ opacity: 0, scale: 0.8 }}
                     transition={{ duration: 0.3 }}
                   >
-                    <PolarizerVisualizer
+                    <DraggablePolarizerVisualizer
                       x={315}
                       angle={polarizer2Angle}
                       label={isZh ? '中间片 P₂' : 'Middle P₂'}
                       color="#fbbf24"
                       isActive={true}
+                      draggable={enableDrag}
+                      onAngleChange={(angle) => {
+                        setPolarizer2Angle(angle)
+                        checkAngle(angle)
+                        setSelectedPreset(null)
+                      }}
                     />
                   </motion.g>
                 )}
               </AnimatePresence>
 
-              {/* 偏振片3（检偏器） */}
-              <PolarizerVisualizer
+              {/* 偏振片3（检偏器）- Draggable */}
+              <DraggablePolarizerVisualizer
                 x={465}
                 angle={polarizer3Angle}
                 label={isZh ? '检偏器 P₃' : 'Analyzer P₃'}
                 color="#4ade80"
                 isActive={true}
+                draggable={enableDrag}
+                onAngleChange={(angle) => {
+                  setPolarizer3Angle(angle)
+                  checkAngle(angle)
+                  setSelectedPreset(null)
+                }}
               />
 
               {/* 探测器 */}
@@ -552,6 +922,20 @@ export function ThreePolarizersDemo() {
               max={100}
             />
           </div>
+
+          {/* Real-time I-θ Curve */}
+          {showCurve && (
+            <div className="mt-4">
+              <MalusCurve
+                polarizer1Angle={polarizer1Angle}
+                polarizer2Angle={polarizer2Angle}
+                polarizer3Angle={polarizer3Angle}
+                showMiddlePolarizer={showMiddlePolarizer}
+                currentMiddleAngle={polarizer2Angle ?? 45}
+                isZh={isZh}
+              />
+            </div>
+          )}
         </div>
 
         {/* 控制面板 */}
@@ -638,6 +1022,16 @@ export function ThreePolarizersDemo() {
               label={isZh ? '显示公式标注' : 'Show Formula Annotations'}
               checked={showFormulas}
               onChange={setShowFormulas}
+            />
+            <Toggle
+              label={isZh ? '显示透射率曲线' : 'Show I-θ Curve'}
+              checked={showCurve}
+              onChange={setShowCurve}
+            />
+            <Toggle
+              label={isZh ? '拖拽旋转偏振片' : 'Drag to Rotate Polarizers'}
+              checked={enableDrag}
+              onChange={setEnableDrag}
             />
 
             {/* Audio Feedback Toggle */}

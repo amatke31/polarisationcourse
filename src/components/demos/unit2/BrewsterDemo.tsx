@@ -1,14 +1,19 @@
 /**
- * 布儒斯特角演示 - Unit 2
+ * 布儒斯特角演示 - Unit 2 (Refactored with Unified Physics Engine)
  * tan(θB) = n2/n1，反射光为完全s偏振
  * 采用纯DOM + SVG + Framer Motion一体化设计
  *
- * 升级版本：增加波长依赖性（色散）模拟
- * - 使用Sellmeier方程计算折射率
- * - 展示不同波长下布儒斯特角的变化
- * - 波长滑块和光谱色彩显示
+ * Physics Engine Migration:
+ * - Uses solveFresnel() from unified physics engine
+ * - Uses brewsterAngle() for proper angle calculation
+ * - No more hardcoded Fresnel equations
+ *
+ * Enhanced Features:
+ * - Draggable light source for incident angle control
+ * - Real-time Fresnel coefficient visualization
+ * - Dispersion simulation via Sellmeier equations
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { SliderControl, ControlPanel, InfoCard, Toggle } from '../DemoControls'
@@ -17,6 +22,12 @@ import {
   cauchyIndex,
   wavelengthToRGB,
 } from '@/core/WaveOptics'
+// Import Fresnel solver from unified physics engine
+import {
+  solveFresnel,
+  brewsterAngle as computeBrewsterAngle,
+  type FresnelCoefficients,
+} from '@/core/physics/unified'
 
 // 材料类型定义
 interface MaterialData {
@@ -49,28 +60,33 @@ function getMaterialIndex(material: MaterialData, wavelengthNm: number): number 
   return material.fixedN || 1.5
 }
 
-// 计算布儒斯特角和反射率
-function calculateBrewster(theta: number, n1: number, n2: number) {
-  const rad = (theta * Math.PI) / 180
-  const sinTheta1 = Math.sin(rad)
-  const cosTheta1 = Math.cos(rad)
-  const sinTheta2 = (n1 / n2) * sinTheta1
+/**
+ * Calculate Fresnel coefficients using unified physics engine
+ * This replaces the hardcoded implementation with the physics engine's solveFresnel()
+ */
+function calculateBrewster(thetaDeg: number, n1: number, n2: number): {
+  Rs: number
+  Rp: number
+  Ts: number
+  Tp: number
+  totalReflection: boolean
+  theta2: number
+  coefficients: FresnelCoefficients
+} {
+  // Convert degrees to radians for physics engine
+  const thetaRad = (thetaDeg * Math.PI) / 180
 
-  if (sinTheta2 > 1) {
-    return { Rs: 1, Rp: 1, totalReflection: true, theta2: 90 }
-  }
-
-  const cosTheta2 = Math.sqrt(1 - sinTheta2 * sinTheta2)
-  const theta2 = (Math.asin(sinTheta2) * 180) / Math.PI
-
-  const rs = (n1 * cosTheta1 - n2 * cosTheta2) / (n1 * cosTheta1 + n2 * cosTheta2)
-  const rp = (n2 * cosTheta1 - n1 * cosTheta2) / (n2 * cosTheta1 + n1 * cosTheta2)
+  // Use unified physics engine's Fresnel solver
+  const coefficients = solveFresnel(n1, n2, thetaRad)
 
   return {
-    Rs: rs * rs,
-    Rp: rp * rp,
-    totalReflection: false,
-    theta2,
+    Rs: coefficients.Rs,
+    Rp: coefficients.Rp,
+    Ts: coefficients.Ts,
+    Tp: coefficients.Tp,
+    totalReflection: coefficients.isTIR,
+    theta2: coefficients.isTIR ? 90 : (coefficients.thetaT * 180) / Math.PI,
+    coefficients,
   }
 }
 
@@ -295,12 +311,14 @@ function PolarizationIndicator({
   )
 }
 
-// 布儒斯特角SVG图示
+// 布儒斯特角SVG图示 (with draggable light source)
 function BrewsterDiagram({
   incidentAngle,
   n1,
   n2,
   labels,
+  onAngleChange,
+  enableDrag,
 }: {
   incidentAngle: number
   n1: number
@@ -319,10 +337,68 @@ function BrewsterDiagram({
     pPol: string
     brewsterAngle: string
   }
+  onAngleChange?: (angle: number) => void
+  enableDrag?: boolean
 }) {
   const result = calculateBrewster(incidentAngle, n1, n2)
-  const brewsterAngle = (Math.atan(n2 / n1) * 180) / Math.PI
+  // Use unified engine's brewsterAngle function
+  const brewsterAngle = computeBrewsterAngle(n1, n2) * (180 / Math.PI)
   const isAtBrewster = Math.abs(incidentAngle - brewsterAngle) < 1.5
+
+  // Dragging state
+  const [isDragging, setIsDragging] = useState(false)
+  const svgRef = useRef<SVGSVGElement>(null)
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!enableDrag || !onAngleChange) return
+    e.preventDefault()
+    setIsDragging(true)
+  }, [enableDrag, onAngleChange])
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !svgRef.current || !onAngleChange) return
+
+    const svg = svgRef.current
+    const rect = svg.getBoundingClientRect()
+
+    // Calculate position relative to interface center
+    const cx = 300 // Interface center X
+    const cy = 200 // Interface center Y (in SVG coordinates)
+
+    // Convert mouse position to SVG coordinates
+    const scaleX = 600 / rect.width
+    const scaleY = 400 / rect.height
+    const svgX = (e.clientX - rect.left) * scaleX
+    const svgY = (e.clientY - rect.top) * scaleY
+
+    // Calculate angle from vertical (normal)
+    const dx = svgX - cx
+    const dy = cy - svgY // Invert Y because SVG Y grows downward
+
+    if (dy <= 0) return // Only allow angles above interface
+
+    let angle = Math.atan2(Math.abs(dx), dy) * (180 / Math.PI)
+    angle = Math.max(0, Math.min(89, angle)) // Clamp to 0-89°
+
+    // Snap to 1-degree increments
+    onAngleChange(Math.round(angle))
+  }, [isDragging, onAngleChange])
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+    return undefined
+  }, [isDragging, handleMouseMove, handleMouseUp])
 
   const rad = (incidentAngle * Math.PI) / 180
   const refractRad = (result.theta2 * Math.PI) / 180
@@ -358,7 +434,7 @@ function BrewsterDiagram({
   }
 
   return (
-    <svg viewBox="0 0 600 400" className="w-full h-auto">
+    <svg ref={svgRef} viewBox="0 0 600 400" className="w-full h-auto">
       <defs>
         <linearGradient id="airGradient" x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#0f172a" stopOpacity="0.8" />
@@ -399,16 +475,31 @@ function BrewsterDiagram({
       <line x1={cx} y1="30" x2={cx} y2="370" stroke="#94a3b8" strokeWidth="1" strokeDasharray="6 4" opacity="0.6" />
       <text x={cx + 8} y="45" fill="#94a3b8" fontSize="11">{labels.normal}</text>
 
-      {/* 光源 */}
+      {/* 光源 (Draggable) */}
       <motion.circle
         cx={incidentStart.x}
         cy={incidentStart.y}
         r="12"
         fill="#fbbf24"
         filter="url(#glowYellow)"
-        animate={{ scale: [1, 1.1, 1] }}
-        transition={{ duration: 2, repeat: Infinity }}
+        animate={{ scale: isDragging ? 1.3 : [1, 1.1, 1] }}
+        transition={{ duration: isDragging ? 0.1 : 2, repeat: isDragging ? 0 : Infinity }}
+        style={{ cursor: enableDrag ? 'grab' : 'default' }}
+        onMouseDown={handleMouseDown}
       />
+      {/* Drag hint ring */}
+      {enableDrag && (
+        <circle
+          cx={incidentStart.x}
+          cy={incidentStart.y}
+          r="18"
+          fill="none"
+          stroke={isDragging ? '#fbbf24' : 'transparent'}
+          strokeWidth="2"
+          strokeDasharray="4 2"
+          opacity={isDragging ? 1 : 0.5}
+        />
+      )}
 
       {/* 入射光 */}
       <motion.line
@@ -720,6 +811,7 @@ export function BrewsterDemo() {
   const [wavelength, setWavelength] = useState(550) // 绿光默认
   const [showDispersion, setShowDispersion] = useState(true)
   const [selectedMaterialIndex, setSelectedMaterialIndex] = useState(0)
+  const [enableDrag, setEnableDrag] = useState(true) // Enable draggable light source
   const n1 = 1.0 // 空气
 
   // 获取当前材料
@@ -730,7 +822,8 @@ export function BrewsterDemo() {
     ? getMaterialIndex(currentMaterial, wavelength)
     : getMaterialIndex(currentMaterial, 550) // 固定在550nm
 
-  const brewsterAngle = (Math.atan(n2 / n1) * 180) / Math.PI
+  // Use unified physics engine for Brewster angle calculation
+  const brewsterAngle = computeBrewsterAngle(n1, n2) * (180 / Math.PI)
   const result = calculateBrewster(incidentAngle, n1, n2)
   const isAtBrewster = Math.abs(incidentAngle - brewsterAngle) < 1.5
   const polarizationDegree = Math.abs(result.Rs - result.Rp) / (result.Rs + result.Rp + 0.001)
@@ -777,7 +870,19 @@ export function BrewsterDemo() {
         {/* 左侧：可视化 */}
         <div className="space-y-4">
           <div className="rounded-xl bg-gradient-to-br from-slate-900/90 via-slate-900/95 to-cyan-950/90 border border-cyan-500/30 p-4 shadow-[0_15px_40px_rgba(0,0,0,0.5)]">
-            <BrewsterDiagram incidentAngle={incidentAngle} n1={n1} n2={n2} labels={diagramLabels} />
+            <BrewsterDiagram
+              incidentAngle={incidentAngle}
+              n1={n1}
+              n2={n2}
+              labels={diagramLabels}
+              onAngleChange={setIncidentAngle}
+              enableDrag={enableDrag}
+            />
+            {enableDrag && (
+              <p className="text-xs text-gray-500 text-center mt-2">
+                {t('demoUi.brewster.dragHint', '💡 Drag the light source to change incident angle')}
+              </p>
+            )}
           </div>
 
           {/* 状态指示 */}
@@ -835,6 +940,16 @@ export function BrewsterDemo() {
               onChange={setIncidentAngle}
               color="orange"
             />
+
+            {/* Drag mode toggle */}
+            <div className="flex items-center justify-between py-2 border-t border-slate-700/50">
+              <span className="text-xs text-gray-400">{t('demoUi.brewster.dragMode', 'Drag Light Source')}</span>
+              <Toggle
+                label=""
+                checked={enableDrag}
+                onChange={setEnableDrag}
+              />
+            </div>
 
             {/* 色散模式开关 */}
             <div className="flex items-center justify-between py-2 border-t border-slate-700/50">

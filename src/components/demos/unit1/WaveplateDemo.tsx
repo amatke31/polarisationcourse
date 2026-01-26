@@ -1,13 +1,16 @@
 /**
- * 波片原理演示 - Unit 1
+ * 波片原理演示 - Unit 1 (Refactored with Unified Physics Engine)
  * 演示四分之一波片和二分之一波片对偏振态的影响
- * 重构版本：使用清晰的2D Canvas + SVG + Framer Motion
  *
- * 升级版本：增加非理想器件参数模拟
- * - 相位误差（制造公差）
- * - 快轴对准误差
- * - 透过率损耗
- * - 波长依赖性（色散）
+ * Physics Engine Migration:
+ * - Uses CoherencyMatrix for polarization state representation
+ * - Uses Matrix2x2 Jones matrices from unified engine
+ * - Proper Stokes parameter visualization
+ *
+ * Enhanced Features:
+ * - Poincaré Sphere visualization showing polarization state trajectory
+ * - Real-time state mapping on the sphere
+ * - Non-ideal waveplate parameter simulation
  */
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
@@ -29,6 +32,10 @@ import {
   waveplateRetardation,
   wavelengthToRGB,
 } from '@/core/WaveOptics'
+// Import from unified physics engine
+import { CoherencyMatrix } from '@/core/physics/unified/CoherencyMatrix'
+import { Matrix2x2 } from '@/core/math/Matrix2x2'
+import { Complex } from '@/core/math/Complex'
 
 // 波片类型
 type WaveplateType = 'quarter' | 'half'
@@ -515,6 +522,208 @@ function PhaseRetardationDiagram({
   )
 }
 
+// ========================================
+// Poincaré Sphere Visualization
+// ========================================
+
+interface PoincareSphereProps {
+  stokesParams: [number, number, number, number] // [S0, S1, S2, S3]
+  inputStokes?: [number, number, number, number]
+  size?: number
+  showTrajectory?: boolean
+  trajectoryPoints?: Array<[number, number, number, number]>
+}
+
+function PoincareSphere({
+  stokesParams,
+  inputStokes,
+  size = 140,
+  showTrajectory = false,
+  trajectoryPoints = [],
+}: PoincareSphereProps) {
+  const centerX = size / 2
+  const centerY = size / 2
+  const radius = size / 2 - 15
+
+  // Convert normalized Stokes to sphere coordinates
+  // S1 = x (horizontal), S2 = z (into screen), S3 = y (vertical)
+  const [_s0, s1, s2, s3] = stokesParams
+  const norm = Math.sqrt(s1 * s1 + s2 * s2 + s3 * s3) || 1
+
+  // Normalized coordinates
+  const nx = s1 / norm
+  const ny = s3 / norm // S3 maps to vertical
+  const nz = s2 / norm // S2 maps to depth
+
+  // 2D projection (simple orthographic, slightly rotated for depth)
+  const projX = centerX + radius * (nx * 0.9 + nz * 0.3)
+  const projY = centerY - radius * (ny * 0.9 - nz * 0.1)
+
+  // Input point (if provided)
+  const inputPoint = inputStokes
+    ? {
+        x: centerX + radius * ((inputStokes[1] / norm) * 0.9 + (inputStokes[2] / norm) * 0.3),
+        y: centerY - radius * ((inputStokes[3] / norm) * 0.9 - (inputStokes[2] / norm) * 0.1),
+      }
+    : null
+
+  // Determine polarization type from position
+  const getPolarizationLabel = () => {
+    if (Math.abs(ny) > 0.9) return ny > 0 ? 'RCP' : 'LCP'
+    if (Math.abs(ny) < 0.1) {
+      const angle = Math.atan2(s2, s1) * (180 / Math.PI) / 2
+      return `Linear ${((angle + 180) % 180).toFixed(0)}°`
+    }
+    return 'Elliptical'
+  }
+
+  return (
+    <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-gray-300">Poincaré Sphere</span>
+        <span className="text-[10px] text-cyan-400">{getPolarizationLabel()}</span>
+      </div>
+
+      <svg width={size} height={size} className="mx-auto">
+        {/* Sphere background */}
+        <defs>
+          <radialGradient id="sphere-gradient" cx="35%" cy="35%" r="65%">
+            <stop offset="0%" stopColor="#334155" />
+            <stop offset="100%" stopColor="#0f172a" />
+          </radialGradient>
+          <filter id="glow-point">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Main sphere */}
+        <circle
+          cx={centerX}
+          cy={centerY}
+          r={radius}
+          fill="url(#sphere-gradient)"
+          stroke="#475569"
+          strokeWidth="1"
+        />
+
+        {/* Equator (linear polarization) */}
+        <ellipse
+          cx={centerX}
+          cy={centerY}
+          rx={radius * 0.9}
+          ry={radius * 0.15}
+          fill="none"
+          stroke="#22d3ee"
+          strokeWidth="1"
+          opacity="0.4"
+          strokeDasharray="3 2"
+        />
+
+        {/* Vertical meridian */}
+        <ellipse
+          cx={centerX}
+          cy={centerY}
+          rx={radius * 0.15}
+          ry={radius * 0.9}
+          fill="none"
+          stroke="#a78bfa"
+          strokeWidth="1"
+          opacity="0.3"
+          strokeDasharray="3 2"
+        />
+
+        {/* Axis labels */}
+        <text x={centerX + radius + 5} y={centerY + 4} fill="#94a3b8" fontSize="8">
+          S₁
+        </text>
+        <text x={centerX} y={centerY - radius - 5} textAnchor="middle" fill="#94a3b8" fontSize="8">
+          S₃ (RCP)
+        </text>
+        <text x={centerX} y={centerY + radius + 12} textAnchor="middle" fill="#94a3b8" fontSize="8">
+          (LCP)
+        </text>
+
+        {/* Pole markers */}
+        <circle cx={centerX} cy={centerY - radius * 0.9} r="3" fill="#ff44ff" opacity="0.6" />
+        <circle cx={centerX} cy={centerY + radius * 0.9} r="3" fill="#44ffff" opacity="0.6" />
+
+        {/* Equator key points */}
+        <circle cx={centerX + radius * 0.9} cy={centerY} r="2" fill="#ff4444" opacity="0.6" />
+        <circle cx={centerX - radius * 0.9} cy={centerY} r="2" fill="#44ff44" opacity="0.6" />
+
+        {/* Trajectory (if enabled) */}
+        {showTrajectory && trajectoryPoints.length > 1 && (
+          <path
+            d={trajectoryPoints
+              .map((pt, i) => {
+                const pNorm = Math.sqrt(pt[1] ** 2 + pt[2] ** 2 + pt[3] ** 2) || 1
+                const px = centerX + radius * ((pt[1] / pNorm) * 0.9 + (pt[2] / pNorm) * 0.3)
+                const py = centerY - radius * ((pt[3] / pNorm) * 0.9 - (pt[2] / pNorm) * 0.1)
+                return i === 0 ? `M ${px},${py}` : `L ${px},${py}`
+              })
+              .join(' ')}
+            fill="none"
+            stroke="#fbbf24"
+            strokeWidth="1.5"
+            opacity="0.6"
+            strokeDasharray="2 2"
+          />
+        )}
+
+        {/* Input state point */}
+        {inputPoint && (
+          <circle
+            cx={inputPoint.x}
+            cy={inputPoint.y}
+            r="4"
+            fill="#fbbf24"
+            stroke="white"
+            strokeWidth="1"
+            opacity="0.7"
+          />
+        )}
+
+        {/* Current state point */}
+        <motion.circle
+          cx={projX}
+          cy={projY}
+          r="6"
+          fill="#22d3ee"
+          stroke="white"
+          strokeWidth="2"
+          filter="url(#glow-point)"
+          animate={{ cx: projX, cy: projY }}
+          transition={{ duration: 0.15 }}
+        />
+      </svg>
+
+      {/* Stokes parameter display */}
+      <div className="grid grid-cols-4 gap-1 mt-2 text-[9px] font-mono">
+        <div className="text-center">
+          <div className="text-gray-500">S₀</div>
+          <div className="text-white">{stokesParams[0].toFixed(2)}</div>
+        </div>
+        <div className="text-center">
+          <div className="text-gray-500">S₁</div>
+          <div className="text-red-400">{stokesParams[1].toFixed(2)}</div>
+        </div>
+        <div className="text-center">
+          <div className="text-gray-500">S₂</div>
+          <div className="text-green-400">{stokesParams[2].toFixed(2)}</div>
+        </div>
+        <div className="text-center">
+          <div className="text-gray-500">S₃</div>
+          <div className="text-purple-400">{stokesParams[3].toFixed(2)}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // 预设按钮组件
 function PresetButton({
   label,
@@ -546,6 +755,58 @@ function PresetButton({
       {label}
     </motion.button>
   )
+}
+
+// ========================================
+// Calculate output using unified physics engine
+// ========================================
+function calculateWithUnifiedEngine(
+  waveplateType: WaveplateType,
+  inputAngleDeg: number,
+  fastAxisAngleDeg: number,
+): {
+  stokes: [number, number, number, number]
+  inputStokes: [number, number, number, number]
+  intensity: number
+  dop: number
+  orientationAngle: number
+  ellipticityAngle: number
+} {
+  const DEG_TO_RAD = Math.PI / 180
+
+  // Create input state using unified engine
+  const inputState = CoherencyMatrix.createLinear(1.0, inputAngleDeg * DEG_TO_RAD)
+  const inputStokes = inputState.toStokes() as [number, number, number, number]
+
+  // Create waveplate Jones matrix
+  const retardance = waveplateType === 'quarter' ? Math.PI / 2 : Math.PI
+  const theta = fastAxisAngleDeg * DEG_TO_RAD
+  const c = Math.cos(theta)
+  const s = Math.sin(theta)
+  const c2 = c * c
+  const s2 = s * s
+  const cs = c * s
+
+  const eid = Complex.exp(retardance)
+  const eidm1 = eid.sub(Complex.ONE)
+
+  const a00 = new Complex(c2).add(eid.scale(s2))
+  const a01 = new Complex(cs).mul(eidm1)
+  const a11 = new Complex(s2).add(eid.scale(c2))
+
+  const waveplateMatrix = new Matrix2x2(a00, a01, a01, a11)
+  const outputState = inputState.applyOperator(waveplateMatrix)
+
+  const stokes = outputState.toStokes() as [number, number, number, number]
+
+  return {
+    stokes,
+    inputStokes,
+    intensity: outputState.intensity,
+    dop: outputState.degreeOfPolarization,
+    orientationAngle: outputState.orientationAngle * (180 / Math.PI),
+    ellipticityAngle: outputState.ellipticityAngle * (180 / Math.PI),
+  }
 }
 
 // 使用Jones矩阵计算非理想波片输出
@@ -630,8 +891,24 @@ export function WaveplateDemo() {
     ...TYPICAL_WAVEPLATE,
     useNonIdeal: false,
   })
+  const [showPoincare, setShowPoincare] = useState(true)
 
   const relativeAngle = ((inputAngle - fastAxisAngle) % 180 + 180) % 180
+
+  // Calculate polarization state using unified physics engine
+  const unifiedResult = useMemo(() => {
+    return calculateWithUnifiedEngine(waveplateType, inputAngle, fastAxisAngle)
+  }, [waveplateType, inputAngle, fastAxisAngle])
+
+  // Generate trajectory for Poincaré sphere (sweep fast axis angle)
+  const trajectoryPoints = useMemo(() => {
+    const points: Array<[number, number, number, number]> = []
+    for (let fa = 0; fa <= 180; fa += 10) {
+      const result = calculateWithUnifiedEngine(waveplateType, inputAngle, fa)
+      points.push(result.stokes)
+    }
+    return points
+  }, [waveplateType, inputAngle])
 
   // 计算非理想输出（仅在研究模式下使用）
   const nonIdealResult = useMemo(() => {
@@ -818,6 +1095,16 @@ export function WaveplateDemo() {
           >
             {animate ? '⏸ 暂停动画' : '▶ 播放动画'}
           </motion.button>
+
+          {/* Poincaré sphere toggle */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-700/50 mt-2">
+            <span className="text-xs text-gray-400">Poincaré 球可视化</span>
+            <Toggle
+              label=""
+              checked={showPoincare}
+              onChange={setShowPoincare}
+            />
+          </div>
         </ControlPanel>
 
         {/* 计算结果 */}
@@ -845,6 +1132,16 @@ export function WaveplateDemo() {
               : '快轴与慢轴相位差为 π (180°)'}
           </div>
         </ControlPanel>
+
+        {/* Poincaré Sphere Visualization (from unified engine) */}
+        {showPoincare && (
+          <PoincareSphere
+            stokesParams={unifiedResult.stokes}
+            inputStokes={unifiedResult.inputStokes}
+            showTrajectory={true}
+            trajectoryPoints={trajectoryPoints}
+          />
+        )}
 
         {/* 研究模式：非理想参数控制 */}
         {difficultyLevel === 'research' && (

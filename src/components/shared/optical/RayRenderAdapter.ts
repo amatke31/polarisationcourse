@@ -15,8 +15,6 @@
  */
 
 import type { RaySegment } from '@/core/physics/unified/LightTracer'
-import type { CoherencyMatrix } from '@/core/physics/unified/CoherencyMatrix'
-import type { PolarizationBasis } from '@/core/physics/unified/PolarizationBasis'
 import type { Vector3 } from '@/core/math/Vector3'
 import type { LightBeamSegment, GetPolarizationColorFn } from './types'
 import type { Direction2D } from '@/lib/opticsPhysics'
