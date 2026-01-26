@@ -48,3 +48,6 @@ export * from './merchandise/products'
 
 // Cultural Creations (文创作品)
 export * from './cultural-creations'
+
+// Student Projects (学生课题)
+export * from './student-projects'

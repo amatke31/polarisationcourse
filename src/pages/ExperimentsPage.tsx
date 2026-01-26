@@ -20,6 +20,14 @@ import { PolarizationArt, ArtGallery, MATERIAL_PRESETS } from '@/components/shar
 import type { PolarizationArtParams, CrystalAxisMode } from '@/data/types'
 import { ExperimentTools, EXPERIMENT_TOOLS, CulturalShowcase } from '@/components/experiments'
 import {
+  getCompletedProjects,
+  getSemesterLabel,
+  getCategoryLabel,
+  getStatusLabel,
+  type StudentProject,
+  type ProjectYearGroup,
+} from '@/data/student-projects'
+import {
   Beaker, Clock, DollarSign, AlertTriangle, ChevronRight,
   CheckCircle2, Star, Lightbulb, Camera, X,
   ShoppingBag, Eye, GraduationCap,
@@ -29,10 +37,10 @@ import {
 } from 'lucide-react'
 
 // Tab type definition
-type TabId = 'diy' | 'showcase' | 'gallery' | 'workshop' | 'generator'
+type TabId = 'diy' | 'showcase' | 'gallery' | 'workshop' | 'generator' | 'projects'
 
 // Valid tab IDs for route matching
-const VALID_TABS: TabId[] = ['diy', 'showcase', 'gallery', 'workshop', 'generator']
+const VALID_TABS: TabId[] = ['diy', 'showcase', 'gallery', 'workshop', 'generator', 'projects']
 
 // Experiment difficulty and cost levels
 type Difficulty = 'easy' | 'medium' | 'hard'
@@ -615,13 +623,8 @@ const COST_CONFIG = {
   medium: { labelEn: '$$', labelZh: '中等成本', icon: '$$' },
 }
 
-// Sub-module tabs - 优化后的模块结构
-// 1. DIY实验 - 动手实验教程
-// 2. 文创展示 - 真实偏振艺术作品展示（图片/视频）+ 产品创意概念
-// 3. 作品展示 - 社区用户投稿作品（Gallery）
-// 4. 创作工坊 - 创作教程和资源
-// 5. 艺术生成器 - 偏振艺术生成器
 const SUB_MODULE_TABS = [
+  { id: 'projects', labelEn: 'Student Projects', labelZh: '学生课题', icon: <GraduationCap className="w-4 h-4" /> },
   { id: 'diy', labelEn: 'DIY Experiments', labelZh: 'DIY实验', icon: <Beaker className="w-4 h-4" /> },
   { id: 'showcase', labelEn: 'Art & Creations', labelZh: '作品与创意', icon: <Film className="w-4 h-4" /> },
   { id: 'gallery', labelEn: 'Community Gallery', labelZh: '社区展示', icon: <ImageIcon className="w-4 h-4" /> },
@@ -2144,6 +2147,168 @@ function TutorialCard({ tutorial }: { tutorial: Tutorial }) {
   )
 }
 
+// ===== Student Project Card Component =====
+interface ProjectCardProps {
+  project: StudentProject
+  isZh: boolean
+  theme: 'dark' | 'light'
+}
+
+function ProjectCard({ project, isZh, theme }: ProjectCardProps) {
+  return (
+    <div className={cn(
+      'rounded-xl border p-5 transition-all hover:shadow-lg',
+      theme === 'dark'
+        ? 'bg-slate-800/50 border-slate-700 hover:border-violet-500/50'
+        : 'bg-white border-gray-200 hover:border-violet-300 hover:shadow-violet-100/50'
+    )}>
+      {/* Header */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1">
+          <h3 className={cn(
+            'font-semibold text-base mb-1',
+            theme === 'dark' ? 'text-white' : 'text-gray-900'
+          )}>
+            {isZh ? project.titleZh : project.title}
+          </h3>
+          <p className={cn(
+            'text-sm line-clamp-2',
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+          )}>
+            {isZh ? project.descriptionZh : project.description}
+          </p>
+        </div>
+        {project.featured && (
+          <Star className={cn('w-4 h-4 flex-shrink-0 ml-2', theme === 'dark' ? 'text-yellow-400' : 'text-yellow-500')} />
+        )}
+      </div>
+
+      {/* Students */}
+      {project.students.length > 0 && (
+        <div className="flex items-center gap-2 mb-3">
+          <GraduationCap className={cn('w-3.5 h-3.5', theme === 'dark' ? 'text-violet-400' : 'text-violet-600')} />
+          <span className={cn('text-xs', theme === 'dark' ? 'text-gray-400' : 'text-gray-500')}>
+            {isZh && project.studentsZh
+              ? project.studentsZh.join('、')
+              : project.students.join(', ')}
+          </span>
+        </div>
+      )}
+
+      {/* Tags */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Category */}
+        <span className={cn(
+          'text-xs px-2 py-1 rounded-full font-medium',
+          theme === 'dark'
+            ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+            : 'bg-violet-100 text-violet-700 border border-violet-300'
+        )}>
+          {getCategoryLabel(project.category, isZh ? 'zh' : 'en')}
+        </span>
+
+        {/* Status */}
+        <span className={cn(
+          'text-xs px-2 py-1 rounded-full font-medium',
+          project.status === 'completed'
+            ? theme === 'dark'
+              ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+              : 'bg-green-100 text-green-700 border border-green-300'
+            : project.status === 'in-progress'
+              ? theme === 'dark'
+                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                : 'bg-blue-100 text-blue-700 border border-blue-300'
+              : theme === 'dark'
+                ? 'bg-gray-500/20 text-gray-300 border border-gray-500/30'
+                : 'bg-gray-100 text-gray-700 border border-gray-300'
+        )}>
+          {getStatusLabel(project.status, isZh ? 'zh' : 'en')}
+        </span>
+
+        {/* Keywords */}
+        {project.keywords && project.keywords.length > 0 && (
+          <>
+            {(isZh ? project.keywordsZh : project.keywords)?.slice(0, 2).map((keyword, idx) => (
+              <span key={idx} className={cn(
+                'text-xs px-2 py-1 rounded-full',
+                theme === 'dark'
+                  ? 'bg-slate-700 text-gray-300'
+                  : 'bg-gray-100 text-gray-600'
+              )}>
+                {keyword}
+              </span>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Abstract (if available) */}
+      {project.abstract && (
+        <details className="mt-3">
+          <summary className={cn(
+            'text-xs cursor-pointer hover:underline',
+            theme === 'dark' ? 'text-violet-400' : 'text-violet-600'
+          )}>
+            {isZh ? '查看摘要' : 'View Abstract'}
+          </summary>
+          <p className={cn(
+            'mt-2 text-xs p-3 rounded-lg',
+            theme === 'dark'
+              ? 'bg-slate-900/50 text-gray-300'
+              : 'bg-gray-50 text-gray-600'
+          )}>
+            {isZh && project.abstractZh ? project.abstractZh : project.abstract}
+          </p>
+        </details>
+      )}
+
+      {/* Links */}
+      <div className="flex items-center gap-3 mt-3 pt-3 border-t">
+        {project.poster && (
+          <a
+            href={project.poster}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              'flex items-center gap-1 text-xs hover:underline',
+              theme === 'dark' ? 'text-violet-400' : 'text-violet-600'
+            )}
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            {isZh ? '海报' : 'Poster'}
+          </a>
+        )}
+        {project.report && (
+          <a
+            href={project.report}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              'flex items-center gap-1 text-xs hover:underline',
+              theme === 'dark' ? 'text-violet-400' : 'text-violet-600'
+            )}
+          >
+            <FileVideo className="w-3.5 h-3.5" />
+            {isZh ? '报告' : 'Report'}
+          </a>
+        )}
+        {project.demoLink && (
+          <Link
+            to={project.demoLink}
+            className={cn(
+              'flex items-center gap-1 text-xs hover:underline',
+              theme === 'dark' ? 'text-violet-400' : 'text-violet-600'
+            )}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            {isZh ? '相关演示' : 'Demo'}
+          </Link>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function ExperimentsPage() {
   const { i18n } = useTranslation()
   const { theme } = useTheme()
@@ -2156,7 +2321,7 @@ export function ExperimentsPage() {
     if (tabId && VALID_TABS.includes(tabId as TabId)) {
       return tabId as TabId
     }
-    return 'diy'
+    return 'projects'
   }
 
   const [activeTab, setActiveTab] = useState<TabId>(getActiveTab())
@@ -2764,6 +2929,158 @@ export function ExperimentsPage() {
               </p>
               <ArtGallery count={6} />
             </div>
+          </>
+        )}
+
+        {/* Student Projects Tab - 学生课题 */}
+        {activeTab === 'projects' && (
+          <>
+            {/* Intro Banner */}
+            <div className={cn(
+              'rounded-2xl p-6 mb-8 border',
+              theme === 'dark'
+                ? 'bg-gradient-to-r from-violet-900/30 to-purple-900/30 border-violet-700/30'
+                : 'bg-gradient-to-r from-violet-50 to-purple-50 border-violet-200'
+            )}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className={cn(
+                  'w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0',
+                  theme === 'dark' ? 'bg-violet-500/20' : 'bg-violet-100'
+                )}>
+                  <GraduationCap className={cn('w-7 h-7', theme === 'dark' ? 'text-violet-400' : 'text-violet-600')} />
+                </div>
+                <div className="flex-1">
+                  <h2 className={cn(
+                    'text-lg font-semibold mb-1',
+                    theme === 'dark' ? 'text-white' : 'text-gray-900'
+                  )}>
+                    {isZh ? '学生课题展示' : 'Student Projects Showcase'}
+                  </h2>
+                  <p className={cn(
+                    'text-sm',
+                    theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                  )}>
+                    {isZh
+                      ? '历届学生在偏振光学研究中的课题成果与探索。'
+                      : 'Research projects and achievements from past students in polarization optics.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Projects by Year - 按年份展示课题（仅已完成） */}
+            {(() => {
+              const yearGroups = getCompletedProjects()
+
+              if (yearGroups.length === 0) {
+                return (
+                  <div className={cn(
+                    'rounded-2xl border p-8',
+                    theme === 'dark'
+                      ? 'bg-slate-800/30 border-slate-700'
+                      : 'bg-white border-gray-200'
+                  )}>
+                    <div className="text-center py-12">
+                      <GraduationCap className={cn(
+                        'w-16 h-16 mx-auto mb-4',
+                        theme === 'dark' ? 'text-slate-600' : 'text-gray-300'
+                      )} />
+                      <h3 className={cn(
+                        'text-xl font-semibold mb-2',
+                        theme === 'dark' ? 'text-white' : 'text-gray-900'
+                      )}>
+                        {isZh ? '暂无已完成的课题' : 'No Completed Projects Yet'}
+                      </h3>
+                      <p className={cn(
+                        'text-sm max-w-md mx-auto',
+                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                      )}>
+                        {isZh
+                          ? '学生课题完成后将在此展示。'
+                          : 'Completed student projects will be displayed here.'}
+                      </p>
+                    </div>
+                  </div>
+                )
+              }
+
+              return yearGroups.map((yearGroup: ProjectYearGroup) => (
+                <div key={yearGroup.year} className="mb-12">
+                  {/* Year Header */}
+                  <div className={cn(
+                    'flex items-center gap-3 mb-6',
+                    theme === 'dark' ? 'text-white' : 'text-gray-900'
+                  )}>
+                    <GraduationCap className={cn('w-6 h-6', theme === 'dark' ? 'text-violet-400' : 'text-violet-600')} />
+                    <h2 className="text-2xl font-bold">{yearGroup.year}</h2>
+                  </div>
+
+                  {/* Summer Semester */}
+                  {yearGroup.semesters.summer.length > 0 && (
+                    <div className="mb-8">
+                      <div className={cn(
+                        'flex items-center gap-2 mb-4 px-4 py-2 rounded-lg',
+                        theme === 'dark'
+                          ? 'bg-orange-500/10 border border-orange-500/30'
+                          : 'bg-orange-50 border border-orange-200'
+                      )}>
+                        <span className={cn(
+                          'text-sm font-medium',
+                          theme === 'dark' ? 'text-orange-400' : 'text-orange-600'
+                        )}>
+                          {yearGroup.year}-{getSemesterLabel('summer', isZh ? 'zh' : 'en')}
+                        </span>
+                        <span className={cn(
+                          'text-xs px-2 py-0.5 rounded-full',
+                          theme === 'dark'
+                            ? 'bg-slate-700 text-gray-300'
+                            : 'bg-gray-200 text-gray-600'
+                        )}>
+                          {yearGroup.semesters.summer.length} {isZh ? '个项目' : 'projects'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {yearGroup.semesters.summer.map((project: StudentProject) => (
+                          <ProjectCard key={project.id} project={project} isZh={isZh} theme={theme} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Winter Semester */}
+                  {yearGroup.semesters.winter.length > 0 && (
+                    <div className="mb-8">
+                      <div className={cn(
+                        'flex items-center gap-2 mb-4 px-4 py-2 rounded-lg',
+                        theme === 'dark'
+                          ? 'bg-cyan-500/10 border border-cyan-500/30'
+                          : 'bg-cyan-50 border border-cyan-200'
+                      )}>
+                        <span className={cn(
+                          'text-sm font-medium',
+                          theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'
+                        )}>
+                          {yearGroup.year}-{getSemesterLabel('winter', isZh ? 'zh' : 'en')}
+                        </span>
+                        <span className={cn(
+                          'text-xs px-2 py-0.5 rounded-full',
+                          theme === 'dark'
+                            ? 'bg-slate-700 text-gray-300'
+                            : 'bg-gray-200 text-gray-600'
+                        )}>
+                          {yearGroup.semesters.winter.length} {isZh ? '个项目' : 'projects'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {yearGroup.semesters.winter.map((project: StudentProject) => (
+                          <ProjectCard key={project.id} project={project} isZh={isZh} theme={theme} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            })()}
           </>
         )}
       </main>
