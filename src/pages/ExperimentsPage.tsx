@@ -2180,7 +2180,7 @@ export function ExperimentsPage() {
     setActiveTab(tab)
     setFilterCategory('all')
     setFilterDifficulty('all')
-    navigate(`/experiments/${tab}`)
+    navigate(`/gallery/${tab}`)
   }
 
   // Filter experiments
