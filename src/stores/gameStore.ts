@@ -7,7 +7,8 @@ import {
   PolarizationAngle,
   createDefaultBlockState
 } from '@/core/types'
-import { World, TUTORIAL_LEVELS, LevelData } from '@/core/World'
+import { World } from '@/core/World'
+import { TUTORIAL_LEVELS, LevelData } from '@/levels'
 import { logger } from '@/lib/logger'
 
 export type CameraMode = 'first-person' | 'isometric' | 'top-down'
@@ -60,31 +61,6 @@ interface GameState {
   hideHint: () => void
 
   checkLevelCompletion: () => boolean
-}
-
-// Tutorial hints per level
-const TUTORIAL_HINTS: Record<number, string[]> = {
-  0: [
-    '光源正在发射偏振光。观察光线是否到达感应器。',
-    '按 R 旋转光源改变偏振角度，使感应器激活。',
-    '按 V 切换偏振视角，可以看到光的偏振颜色。'
-  ],
-  1: [
-    '光需要通过偏振片。按 R 调整偏振片角度。',
-    '马吕斯定律：光强 = 原强度 × cos²(角度差)'
-  ],
-  2: [
-    '两个偏振片串联时，90°角度差会完全阻挡光线！',
-    '尝试找到让光通过的角度组合。'
-  ],
-  3: [
-    '波片可以旋转光的偏振方向而不损失强度。',
-    '按 R 改变波片的旋转量（45°或90°）'
-  ],
-  4: [
-    '方解石（双折射晶体）将光分裂成两束垂直偏振的光。',
-    '尝试激活两个不同偏振角度的感应器。'
-  ]
 }
 
 export const useGameStore = create<GameState>()(
@@ -151,7 +127,7 @@ export const useGameStore = create<GameState>()(
         currentLevelIndex: index,
         currentLevel: level,
         isLevelComplete: false,
-        tutorialHints: TUTORIAL_HINTS[index] || [],
+        tutorialHints: level.hints || [],
         currentHintIndex: 0,
         showHint: true
       })

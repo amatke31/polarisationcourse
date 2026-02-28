@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useGameStore } from '@/stores/gameStore'
-import { TUTORIAL_LEVELS } from '@/core/World'
+import { TUTORIAL_LEVELS } from '@/levels'
 import { cn } from '@/lib/utils'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
